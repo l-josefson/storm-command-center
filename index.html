@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HailTrace Storm Command Center</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #1a1a2e; color: #fff; height: 100vh; display: flex; flex-direction: column; }
+
+    #header {
+      background: #16213e; border-bottom: 1px solid #0f3460;
+      padding: 10px 16px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; flex-shrink: 0;
+    }
+    #header h1 { font-size: 14px; font-weight: 700; color: #e94560; white-space: nowrap; }
+    .header-meta { font-size: 12px; color: #aaa; }
+    .header-meta span { color: #fff; font-weight: 600; }
+    .header-spacer { flex: 1; }
+    .status-pill { font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 20px; text-transform: uppercase; letter-spacing: 0.4px; white-space: nowrap; }
+    .pill-active  { background: #e94560; color: #fff; }
+    .pill-waiting { background: #0f3460; color: #778; }
+    .pill-loading { background: #1a4a8a; color: #9ab; }
+    #last-updated { font-size: 11px; color: #557; white-space: nowrap; }
+    .btn-icon { background: none; border: 1px solid #0f3460; border-radius: 5px; color: #aaa; padding: 4px 9px; font-size: 12px; cursor: pointer; }
+    .btn-icon:hover { background: #0f3460; color: #fff; }
+
+    #body { display: flex; flex: 1; overflow: hidden; }
+
+    #panel { width: 230px; flex-shrink: 0; background: #16213e; border-right: 1px solid #0f3460; padding: 14px; overflow-y: auto; }
+    .panel-section { margin-bottom: 18px; }
+    .panel-title { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: #557; margin-bottom: 9px; }
+    .stat-row { display: flex; justify-content: space-between; padding: 4px 0; font-size: 12px; border-bottom: 1px solid #1a2a4a; }
+    .stat-row:last-child { border-bottom: none; }
+    .stat-lbl { color: #778; }
+    .stat-val { font-weight: 600; }
+    .filter-item { display: flex; align-items: center; gap: 7px; padding: 3px 0; font-size: 12px; cursor: pointer; }
+    .f-swatch { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
+    select.filter-sel { width: 100%; background: #0f3460; border: 1px solid #1a4a8a; border-radius: 4px; padding: 5px 7px; font-size: 11px; color: #fff; margin-top: 6px; }
+    .legend-item { display: flex; align-items: center; gap: 7px; font-size: 11px; padding: 2px 0; }
+    .legend-dot { width: 12px; height: 12px; border-radius: 2px; flex-shrink: 0; }
+    .agent-item { display: flex; align-items: center; gap: 7px; font-size: 12px; padding: 4px 0; border-bottom: 1px solid #1a2a4a; }
+    .agent-item:last-child { border-bottom: none; }
+    .agent-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .dot-grey  { background: #334; }
+    .dot-green { background: #48bb78; }
+    .gist-hint { font-size: 10px; color: #557; font-family: monospace; background: #0f3460; border-radius: 4px; padding: 6px 8px; word-break: break-all; line-height: 1.5; }
+
+    #map-wrap { flex: 1; position: relative; }
+    #map { width: 100%; height: 100%; }
+
+    /* Waiting overlay */
+    #waiting-overlay {
+      position: absolute; inset: 0; background: rgba(15,19,40,0.92);
+      display: none; flex-direction: column; align-items: center; justify-content: center;
+      gap: 14px; z-index: 500;
+    }
+    #waiting-overlay.show { display: flex; }
+    #waiting-overlay h2 { font-size: 20px; color: #e94560; }
+    #waiting-overlay p  { font-size: 13px; color: #778; text-align: center; max-width: 300px; line-height: 1.6; }
+
+    /* Drop zone overlay */
+    #drop-overlay {
+      position: absolute; inset: 0; background: rgba(15,52,96,0.9);
+      display: none; flex-direction: column; align-items: center; justify-content: center;
+      gap: 14px; z-index: 400;
+    }
+    #drop-overlay.show { display: flex; }
+    #drop-overlay label { background: #e94560; color: #fff; padding: 11px 26px; border-radius: 7px; cursor: pointer; font-size: 14px; font-weight: 600; }
+    #drop-overlay label:hover { background: #c73652; }
+    #file-input { display: none; }
+
+    .spinner { width: 28px; height: 28px; border: 3px solid #1a4a8a; border-top-color: #e94560; border-radius: 50%; animation: spin 0.7s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+
+<div id="header">
+  <h1>⛈ Storm Command Center — Stinson Services</h1>
+  <div class="header-meta" id="h-date"   style="display:none">Date: <span id="hv-date">—</span></div>
+  <div class="header-meta" id="h-hail"   style="display:none">Max Hail: <span id="hv-hail">—</span>"</div>
+  <div class="header-meta" id="h-wind"   style="display:none">Max Wind: <span id="hv-wind">—</span> mph</div>
+  <div class="header-meta" id="h-shapes" style="display:none">Shapes: <span id="hv-shapes">—</span></div>
+  <div class="header-spacer"></div>
+  <span id="last-updated"></span>
+  <span id="status-pill" class="status-pill pill-loading">⟳ Loading…</span>
+  <button class="btn-icon" id="map-style-btn" onclick="toggleMapStyle()">🌙 Dark</button>
+  <button class="btn-icon" onclick="fetchGist()">↺ Refresh</button>
+</div>
+
+<div id="body">
+  <div id="panel">
+
+    <div class="panel-section" id="ps-stats" style="display:none">
+      <div class="panel-title">Storm Summary</div>
+      <div class="stat-row"><span class="stat-lbl">Date</span><span class="stat-val" id="ps-date">—</span></div>
+      <div class="stat-row"><span class="stat-lbl">Max Hail</span><span class="stat-val" id="ps-hail">—</span></div>
+      <div class="stat-row"><span class="stat-lbl">Max Wind</span><span class="stat-val" id="ps-wind">—</span></div>
+      <div class="stat-row"><span class="stat-lbl">Tornado</span><span class="stat-val" id="ps-tornado">—</span></div>
+      <div class="stat-row"><span class="stat-lbl">Shapes</span><span class="stat-val" id="ps-shapes">—</span></div>
+      <div class="stat-row"><span class="stat-lbl">Est. Houses</span><span class="stat-val" id="ps-houses">—</span></div>
+    </div>
+
+    <div class="panel-section">
+      <div class="panel-title">Show Layers</div>
+      <label class="filter-item"><input type="checkbox" id="f-algo" checked onchange="applyFilters()"><span class="f-swatch" style="background:#fecc5c;border:1px solid #fd8d3c"></span> Algorithm Hail</label>
+      <label class="filter-item"><input type="checkbox" id="f-met"  checked onchange="applyFilters()"><span class="f-swatch" style="background:#bd0026"></span> Meteorologist Hail</label>
+      <label class="filter-item"><input type="checkbox" id="f-tornado" checked onchange="applyFilters()"><span class="f-swatch" style="background:#7b2d8b"></span> Tornado</label>
+      <label class="filter-item"><input type="checkbox" id="f-wind"    checked onchange="applyFilters()"><span class="f-swatch" style="background:#2166ac"></span> Wind Speed</label>
+      <div style="font-size:11px;color:#557;margin-top:8px">Min hail size:</div>
+      <select id="min-hail" class="filter-sel" onchange="applyFilters()">
+        <option value="0">All sizes (0.75"+)</option>
+        <option value="1">1.00"+ dime</option>
+        <option value="1.25">1.25"+</option>
+        <option value="1.5">1.50"+</option>
+        <option value="1.75">1.75"+</option>
+        <option value="2">2.00"+ quarter</option>
+        <option value="2.5">2.50"+</option>
+      </select>
+    </div>
+
+    <div class="panel-section">
+      <div class="panel-title">Hail Size</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#ffffb2"></div> 0.75" — pea</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#fecc5c"></div> 1.00" — dime</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#fd8d3c"></div> 1.25–1.50"</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#f03b20"></div> 1.75–2.00"</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#bd0026"></div> 2.25"+ golf ball</div>
+      <div class="legend-item" style="margin-top:5px"><div class="legend-dot" style="background:#7b2d8b"></div> Tornado</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#2166ac"></div> Wind speed</div>
+    </div>
+
+    <div class="panel-section" id="ps-agents" style="display:none">
+      <div class="panel-title">Agents Fired</div>
+      <div class="agent-item"><div class="agent-dot dot-green"></div> SEO Content</div>
+      <div class="agent-item"><div class="agent-dot dot-green"></div> Email</div>
+      <div class="agent-item"><div class="agent-dot dot-green"></div> Social Media</div>
+      <div class="agent-item"><div class="agent-dot dot-green"></div> PR / Media</div>
+      <div class="agent-item"><div class="agent-dot dot-green"></div> CRM Prospecting</div>
+    </div>
+
+    <div class="panel-section">
+      <div class="panel-title">Data Source</div>
+      <div class="gist-hint">GitHub Gist<br>current-storm.json</div>
+      <div style="margin-top:8px">
+        <label class="filter-item">
+          <input type="checkbox" id="auto-refresh" onchange="toggleAutoRefresh()">
+          <span style="font-size:12px;color:#aaa">Auto-refresh (5 min)</span>
+        </label>
+      </div>
+      <div style="margin-top:8px;font-size:11px;color:#557;line-height:1.4">
+        Make overwrites this Gist when a storm triggers.
+      </div>
+    </div>
+
+  </div>
+
+  <div id="map-wrap">
+    <div id="map"></div>
+
+    <div id="waiting-overlay">
+      <div>🌤</div>
+      <h2>No Active Storm</h2>
+      <p>Make will overwrite <strong>current-storm.json</strong> on GitHub Gist when a HailTrace alert fires. Refresh to check.</p>
+      <button class="btn-icon" style="margin-top:4px" onclick="fetchGist()">↺ Check Now</button>
+    </div>
+
+    <div id="drop-overlay">
+      <h2 style="color:#e94560">⛈ Drop a storm file</h2>
+      <p style="font-size:13px;color:#aaa">Or click to choose a HailTrace JSON file</p>
+      <label for="file-input">Choose JSON File</label>
+      <input type="file" id="file-input" accept=".json">
+    </div>
+  </div>
+</div>
+
+<script>
+  // ── CONFIG — hardcoded, works on any computer ─────────────────────────────
+  const GIST_URL = 'https://gist.githubusercontent.com/l-josefson/ea82bda6a01811086e37ca54f26c5d4e/raw/current-storm.json';
+
+  let map, layerGroup, allShapes = [], refreshTimer = null;
+
+  // ── Map tile styles ────────────────────────────────────────────────────────
+  const TILES = {
+    light: {
+      url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
+      label: '🌙 Dark',
+      next: 'dark'
+    },
+    dark: {
+      url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+      label: '🌤 Light',
+      next: 'light'
+    }
+  };
+  let currentStyle = 'light';
+  let tileLayer;
+
+  // ── Init map ───────────────────────────────────────────────────────────────
+  const map_ = L.map('map', { zoomControl: true }).setView([39, -95], 4);
+  tileLayer = L.tileLayer(TILES[currentStyle].url, {
+    attribution: '© OpenStreetMap contributors © CARTO', maxZoom: 19
+  }).addTo(map_);
+  layerGroup = L.layerGroup().addTo(map_);
+
+  function toggleMapStyle() {
+    currentStyle = TILES[currentStyle].next;
+    map_.removeLayer(tileLayer);
+    tileLayer = L.tileLayer(TILES[currentStyle].url, {
+      attribution: '© OpenStreetMap contributors © CARTO', maxZoom: 19
+    }).addTo(map_);
+    tileLayer.bringToBack();
+    document.getElementById('map-style-btn').textContent = TILES[currentStyle].label;
+  }
+
+  // ── Hail color ─────────────────────────────────────────────────────────────
+  function hailColor(size) {
+    if (size >= 2.25) return '#bd0026';
+    if (size >= 1.75) return '#f03b20';
+    if (size >= 1.25) return '#fd8d3c';
+    if (size >= 1.0)  return '#fecc5c';
+    return '#ffffb2';
+  }
+
+  // ── Render shapes ──────────────────────────────────────────────────────────
+  function applyFilters() {
+    layerGroup.clearLayers();
+    const showAlgo    = document.getElementById('f-algo').checked;
+    const showMet     = document.getElementById('f-met').checked;
+    const showTornado = document.getElementById('f-tornado').checked;
+    const showWind    = document.getElementById('f-wind').checked;
+    const minHail     = parseFloat(document.getElementById('min-hail').value) || 0;
+
+    const visible = allShapes.filter(s => {
+      const t = s.weather_type, m = s.meta || {};
+      if (t === 'ALGORITHM_HAIL_SIZE'      && !showAlgo)    return false;
+      if (t === 'METEOROLOGIST_HAIL_SIZE'  && !showMet)     return false;
+      if (t === 'METEOROLOGIST_TORNADO'    && !showTornado) return false;
+      if (t === 'METEOROLOGIST_WIND_SPEED' && !showWind)    return false;
+      if ((t === 'ALGORITHM_HAIL_SIZE' || t === 'METEOROLOGIST_HAIL_SIZE') &&
+          (m.hail_size_inches || 0) < minHail) return false;
+      return true;
+    });
+
+    visible.forEach(s => {
+      const t = s.weather_type, m = s.meta || {};
+      let color, fillOpacity, weight;
+      if (t === 'METEOROLOGIST_TORNADO')    { color='#7b2d8b'; fillOpacity=0.6; weight=2; }
+      else if (t === 'METEOROLOGIST_WIND_SPEED') { color='#2166ac'; fillOpacity=0.4; weight=1; }
+      else {
+        color = hailColor(m.hail_size_inches || 0);
+        fillOpacity = t === 'METEOROLOGIST_HAIL_SIZE' ? 0.7 : 0.4;
+        weight      = t === 'METEOROLOGIST_HAIL_SIZE' ? 1.5 : 0.5;
+      }
+      const layer = L.geoJSON(s.geometry, { style: { color, fillColor: color, fillOpacity, weight, opacity: 0.9 } });
+
+      const lines = [`<strong>${t.replace(/_/g,' ')}</strong>`];
+      if (m.hail_size_inches)           lines.push(`Hail: <strong>${m.hail_size_inches}"</strong>`);
+      if (m.wind_speed_mph)             lines.push(`Wind: <strong>${m.wind_speed_mph} mph</strong>`);
+      if (m.tornado_ef_rank != null)    lines.push(`EF Rank: <strong>${m.tornado_ef_rank}</strong>`);
+      if (m.estimated_house_count)      lines.push(`Est. houses: <strong>${m.estimated_house_count.toLocaleString()}</strong>`);
+      if (m.isolated != null)           lines.push(`Isolated: ${m.isolated ? 'Yes' : 'No'}`);
+      if (m.hail_size_duration_minutes) lines.push(`Duration: ${m.hail_size_duration_minutes} min`);
+      layer.bindPopup(lines.join('<br>'), { maxWidth: 220 });
+      layerGroup.addLayer(layer);
+    });
+
+    if (visible.length > 0) {
+      const bounds = layerGroup.getBounds();
+      if (bounds.isValid()) map_.fitBounds(bounds, { padding: [40, 40] });
+    }
+  }
+
+  // ── Load storm data ────────────────────────────────────────────────────────
+  function loadData(data) {
+    allShapes = data.shapes || [];
+    if (allShapes.length === 0) { showWaiting(); return; }
+
+    document.getElementById('waiting-overlay').classList.remove('show');
+
+    ['h-date','h-hail','h-wind','h-shapes'].forEach(id => document.getElementById(id).style.display = 'block');
+    document.getElementById('hv-date').textContent   = data.date || '—';
+    document.getElementById('hv-hail').textContent   = data.max_meteorologist_hail_size ?? data.max_algorithm_hail_size ?? '—';
+    document.getElementById('hv-wind').textContent   = data.max_meteorologist_wind_speed_mph ?? '—';
+    document.getElementById('hv-shapes').textContent = allShapes.length.toLocaleString();
+
+    document.getElementById('ps-stats').style.display  = 'block';
+    document.getElementById('ps-agents').style.display = 'block';
+    document.getElementById('ps-date').textContent     = data.date || '—';
+    document.getElementById('ps-hail').textContent     = (data.max_meteorologist_hail_size ?? data.max_algorithm_hail_size ?? '—') + '"';
+    document.getElementById('ps-wind').textContent     = (data.max_meteorologist_wind_speed_mph ?? '—') + ' mph';
+    const ef = data.max_meteorologist_tornado_ef_rank;
+    document.getElementById('ps-tornado').textContent  = ef != null ? 'EF' + ef : 'None';
+    document.getElementById('ps-shapes').textContent   = allShapes.length.toLocaleString();
+    const houses = allShapes.reduce((n, s) => n + (s.meta?.estimated_house_count || 0), 0);
+    document.getElementById('ps-houses').textContent   = houses > 0 ? houses.toLocaleString() : '—';
+
+    const pill = document.getElementById('status-pill');
+    pill.textContent = '⚡ Active Storm'; pill.className = 'status-pill pill-active';
+    const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    document.getElementById('last-updated').textContent = `Updated ${now}`;
+
+    applyFilters();
+  }
+
+  function showWaiting() {
+    document.getElementById('waiting-overlay').classList.add('show');
+    const pill = document.getElementById('status-pill');
+    pill.textContent = 'No Active Storm'; pill.className = 'status-pill pill-waiting';
+  }
+
+  // ── Fetch from Gist ────────────────────────────────────────────────────────
+  async function fetchGist() {
+    const pill = document.getElementById('status-pill');
+    pill.textContent = '⟳ Loading…'; pill.className = 'status-pill pill-loading';
+    try {
+      // Cache-bust so we always get the latest
+      const res  = await fetch(GIST_URL + '?t=' + Date.now());
+      const data = await res.json();
+      loadData(data);
+    } catch (err) {
+      console.error('Gist fetch failed:', err);
+      pill.textContent = 'Fetch Error'; pill.className = 'status-pill pill-waiting';
+    }
+  }
+
+  // ── Auto-refresh ───────────────────────────────────────────────────────────
+  function toggleAutoRefresh() {
+    const on = document.getElementById('auto-refresh').checked;
+    clearInterval(refreshTimer);
+    if (on) refreshTimer = setInterval(fetchGist, 5 * 60 * 1000);
+  }
+
+  // ── Drag and drop (manual fallback) ───────────────────────────────────────
+  const wrap = document.getElementById('map-wrap');
+  wrap.addEventListener('dragover', e => { e.preventDefault(); document.getElementById('drop-overlay').classList.add('show'); });
+  wrap.addEventListener('dragleave', e => { if (!wrap.contains(e.relatedTarget)) document.getElementById('drop-overlay').classList.remove('show'); });
+  wrap.addEventListener('drop', e => {
+    e.preventDefault();
+    document.getElementById('drop-overlay').classList.remove('show');
+    const file = e.dataTransfer.files[0];
+    if (file) readFile(file);
+  });
+  document.getElementById('file-input').addEventListener('change', e => {
+    const file = e.target.files[0];
+    if (file) readFile(file);
+  });
+  function readFile(file) {
+    const reader = new FileReader();
+    reader.onload = ev => { try { loadData(JSON.parse(ev.target.result)); } catch { alert('Could not parse JSON.'); } };
+    reader.readAsText(file);
+  }
+
+  // ── Boot ───────────────────────────────────────────────────────────────────
+  fetchGist();
+</script>
+</body>
+</html>
