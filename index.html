@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HailTrace Storm Command Center</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f0f2f5; color: #222; height: 100vh; display: flex; flex-direction: column; }
+
+    #header {
+      background: #16213e; border-bottom: 1px solid #0f3460;
+      padding: 10px 16px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; flex-shrink: 0;
+    }
+    #header h1 { font-size: 14px; font-weight: 700; color: #e94560; white-space: nowrap; }
+    .header-meta { font-size: 12px; color: #aaa; }
+    .header-meta span { color: #fff; font-weight: 600; }
+    .header-spacer { flex: 1; }
+    .status-pill { font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 20px; text-transform: uppercase; letter-spacing: 0.4px; white-space: nowrap; }
+    .pill-active  { background: #e94560; color: #fff; }
+    .pill-waiting { background: #0f3460; color: #aaa; }
+    .pill-loading { background: #1a4a8a; color: #9ab; }
+    #last-updated { font-size: 11px; color: #556; white-space: nowrap; }
+    .btn-icon { background: none; border: 1px solid #334; border-radius: 5px; color: #aaa; padding: 4px 9px; font-size: 12px; cursor: pointer; }
+    .btn-icon:hover { background: #0f3460; color: #fff; border-color: #0f3460; }
+
+    #body { display: flex; flex: 1; overflow: hidden; }
+
+    #panel { width: 240px; flex-shrink: 0; background: #fff; border-right: 1px solid #dde; padding: 14px; overflow-y: auto; }
+    .panel-section { margin-bottom: 18px; }
+    .panel-title { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: #999; margin-bottom: 9px; }
+
+    /* Storm cards */
+    .storm-card { border: 1px solid #e0e4ea; border-radius: 7px; padding: 8px 10px; margin-bottom: 8px; cursor: pointer; transition: border-color 0.15s; }
+    .storm-card.active { border-color: #e94560; background: #fff5f7; }
+    .storm-card-header { display: flex; align-items: center; gap: 7px; }
+    .storm-card input[type=checkbox] { accent-color: #e94560; width: 14px; height: 14px; flex-shrink: 0; }
+    .storm-date { font-size: 13px; font-weight: 700; color: #222; }
+    .storm-badge { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 10px; margin-left: auto; white-space: nowrap; }
+    .storm-stats { display: flex; gap: 10px; margin-top: 5px; padding-left: 21px; }
+    .storm-stat { font-size: 11px; color: #666; }
+    .storm-stat strong { color: #333; }
+
+    .stat-row { display: flex; justify-content: space-between; padding: 4px 0; font-size: 12px; border-bottom: 1px solid #eef; }
+    .stat-row:last-child { border-bottom: none; }
+    .stat-lbl { color: #888; }
+    .stat-val { font-weight: 600; color: #222; }
+
+    .filter-item { display: flex; align-items: center; gap: 7px; padding: 3px 0; font-size: 12px; cursor: pointer; color: #333; }
+    .f-swatch { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
+    select.filter-sel { width: 100%; background: #f5f7fa; border: 1px solid #dde; border-radius: 4px; padding: 5px 7px; font-size: 11px; color: #333; margin-top: 6px; }
+
+    .legend-item { display: flex; align-items: center; gap: 7px; font-size: 11px; padding: 2px 0; color: #444; }
+    .legend-dot { width: 12px; height: 12px; border-radius: 2px; flex-shrink: 0; }
+
+    #map-wrap { flex: 1; position: relative; }
+    #map { width: 100%; height: 100%; }
+
+    /* Waiting overlay */
+    #waiting-overlay {
+      position: absolute; inset: 0; background: rgba(240,242,245,0.93);
+      display: none; flex-direction: column; align-items: center; justify-content: center;
+      gap: 14px; z-index: 500;
+    }
+    #waiting-overlay.show { display: flex; }
+    #waiting-overlay h2 { font-size: 20px; color: #e94560; }
+    #waiting-overlay p  { font-size: 13px; color: #888; text-align: center; max-width: 300px; line-height: 1.6; }
+
+    /* Drop overlay */
+    #drop-overlay {
+      position: absolute; inset: 0; background: rgba(15,52,96,0.88);
+      display: none; flex-direction: column; align-items: center; justify-content: center;
+      gap: 14px; z-index: 400;
+    }
+    #drop-overlay.show { display: flex; }
+    #drop-overlay h2 { color: #fff; }
+    #drop-overlay p { font-size: 13px; color: #aac; }
+    #drop-overlay label { background: #e94560; color: #fff; padding: 11px 26px; border-radius: 7px; cursor: pointer; font-size: 14px; font-weight: 600; }
+    #drop-overlay label:hover { background: #c73652; }
+    #file-input { display: none; }
+
+    .spinner { width: 28px; height: 28px; border: 3px solid #dde; border-top-color: #e94560; border-radius: 50%; animation: spin 0.7s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .no-storms-hint { font-size: 11px; color: #aaa; text-align: center; padding: 8px 0; }
+  </style>
+</head>
+<body>
+
+<div id="header">
+  <h1>⛈ Storm Command Center — Stinson Services</h1>
+  <div class="header-meta" id="h-storms" style="display:none">Storms: <span id="hv-storms">—</span></div>
+  <div class="header-meta" id="h-hail"   style="display:none">Max Hail: <span id="hv-hail">—</span>"</div>
+  <div class="header-meta" id="h-shapes" style="display:none">Total Shapes: <span id="hv-shapes">—</span></div>
+  <div class="header-spacer"></div>
+  <span id="last-updated"></span>
+  <span id="status-pill" class="status-pill pill-loading">⟳ Loading…</span>
+  <button class="btn-icon" id="map-style-btn" onclick="toggleMapStyle()">🌙 Dark</button>
+  <button class="btn-icon" onclick="fetchGist()">↺ Refresh</button>
+</div>
+
+<div id="body">
+  <div id="panel">
+
+    <div class="panel-section">
+      <div class="panel-title">Active Storms</div>
+      <div id="storm-list">
+        <div class="no-storms-hint">No active storms</div>
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <div class="panel-title">Show Layers</div>
+      <label class="filter-item"><input type="checkbox" id="f-algo" checked onchange="applyFilters()"><span class="f-swatch" style="background:#fecc5c;border:1px solid #fd8d3c"></span> Algorithm Hail</label>
+      <label class="filter-item"><input type="checkbox" id="f-met"  checked onchange="applyFilters()"><span class="f-swatch" style="background:#bd0026"></span> Meteorologist Hail</label>
+      <label class="filter-item"><input type="checkbox" id="f-tornado" checked onchange="applyFilters()"><span class="f-swatch" style="background:#7b2d8b"></span> Tornado</label>
+      <label class="filter-item"><input type="checkbox" id="f-wind"    checked onchange="applyFilters()"><span class="f-swatch" style="background:#2166ac"></span> Wind Speed</label>
+      <div style="font-size:11px;color:#999;margin-top:8px">Min hail size:</div>
+      <select id="min-hail" class="filter-sel" onchange="applyFilters()">
+        <option value="0">All sizes (0.75"+)</option>
+        <option value="1">1.00"+ dime</option>
+        <option value="1.25">1.25"+</option>
+        <option value="1.5">1.50"+</option>
+        <option value="1.75">1.75"+</option>
+        <option value="2">2.00"+ quarter</option>
+        <option value="2.5">2.50"+</option>
+      </select>
+    </div>
+
+    <div class="panel-section">
+      <div class="panel-title">Hail Size Legend</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#ffffb2"></div> 0.75" — pea</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#fecc5c"></div> 1.00" — dime</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#fd8d3c"></div> 1.25–1.50"</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#f03b20"></div> 1.75–2.00"</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#bd0026"></div> 2.25"+ golf ball</div>
+      <div class="legend-item" style="margin-top:5px"><div class="legend-dot" style="background:#7b2d8b"></div> Tornado</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#2166ac"></div> Wind speed</div>
+    </div>
+
+    <div class="panel-section">
+      <div class="panel-title">Data Source</div>
+      <div style="font-size:10px;color:#aaa;font-family:monospace;background:#f5f7fa;border-radius:4px;padding:6px 8px;word-break:break-all;line-height:1.5">GitHub Gist<br>current-storm.json</div>
+      <div style="margin-top:8px">
+        <label class="filter-item">
+          <input type="checkbox" id="auto-refresh" onchange="toggleAutoRefresh()">
+          <span style="font-size:12px;color:#666">Auto-refresh (5 min)</span>
+        </label>
+      </div>
+    </div>
+
+  </div>
+
+  <div id="map-wrap">
+    <div id="map"></div>
+
+    <div id="waiting-overlay">
+      <div style="font-size:40px">🌤</div>
+      <h2>No Active Storms</h2>
+      <p>Make will update <strong>current-storm.json</strong> on GitHub Gist when a HailTrace alert fires.</p>
+      <button class="btn-icon" style="margin-top:4px;color:#e94560;border-color:#e94560" onclick="fetchGist()">↺ Check Now</button>
+    </div>
+
+    <div id="drop-overlay">
+      <h2>⛈ Drop a storm file</h2>
+      <p>Or click to choose a HailTrace JSON file</p>
+      <label for="file-input">Choose JSON File</label>
+      <input type="file" id="file-input" accept=".json">
+    </div>
+  </div>
+</div>
+
+<script>
+  // ── CONFIG ────────────────────────────────────────────────────────────────
+  const GIST_URL = 'https://gist.githubusercontent.com/l-josefson/30975354bdcb09e84216ed9300d8cde6/raw/current-storm.json';
+
+  let map_, layerGroup, tileLayer, allShapes = [], activeStormDates = new Set(), refreshTimer = null;
+
+  // ── Map tile styles ───────────────────────────────────────────────────────
+  const TILES = {
+    light: { url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', label: '🌙 Dark', next: 'dark' },
+    dark:  { url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',            label: '🌤 Light', next: 'light' }
+  };
+  let currentStyle = 'light';
+
+  // ── Init map ──────────────────────────────────────────────────────────────
+  map_ = L.map('map', { zoomControl: true }).setView([44, -93], 5);
+  tileLayer = L.tileLayer(TILES[currentStyle].url, { attribution: '© OpenStreetMap © CARTO', maxZoom: 19 }).addTo(map_);
+  layerGroup = L.layerGroup().addTo(map_);
+
+  function toggleMapStyle() {
+    currentStyle = TILES[currentStyle].next;
+    map_.removeLayer(tileLayer);
+    tileLayer = L.tileLayer(TILES[currentStyle].url, { attribution: '© OpenStreetMap © CARTO', maxZoom: 19 }).addTo(map_);
+    tileLayer.bringToBack();
+    document.getElementById('map-style-btn').textContent = TILES[currentStyle].label;
+  }
+
+  // ── Hail color ────────────────────────────────────────────────────────────
+  function hailColor(size) {
+    if (size >= 2.25) return '#bd0026';
+    if (size >= 1.75) return '#f03b20';
+    if (size >= 1.25) return '#fd8d3c';
+    if (size >= 1.0)  return '#fecc5c';
+    return '#ffffb2';
+  }
+
+  // ── Render shapes ─────────────────────────────────────────────────────────
+  function applyFilters() {
+    layerGroup.clearLayers();
+    const showAlgo    = document.getElementById('f-algo').checked;
+    const showMet     = document.getElementById('f-met').checked;
+    const showTornado = document.getElementById('f-tornado').checked;
+    const showWind    = document.getElementById('f-wind').checked;
+    const minHail     = parseFloat(document.getElementById('min-hail').value) || 0;
+
+    const visible = allShapes.filter(s => {
+      if (!activeStormDates.has(s._stormDate)) return false;
+      const t = s.weather_type, m = s.meta || {};
+      if (t === 'ALGORITHM_HAIL_SIZE'      && !showAlgo)    return false;
+      if (t === 'METEOROLOGIST_HAIL_SIZE'  && !showMet)     return false;
+      if (t === 'METEOROLOGIST_TORNADO'    && !showTornado) return false;
+      if (t === 'METEOROLOGIST_WIND_SPEED' && !showWind)    return false;
+      if ((t === 'ALGORITHM_HAIL_SIZE' || t === 'METEOROLOGIST_HAIL_SIZE') &&
+          (m.hail_size_inches || 0) < minHail) return false;
+      return true;
+    });
+
+    visible.forEach(s => {
+      const t = s.weather_type, m = s.meta || {};
+      let color, fillOpacity, weight;
+      if (t === 'METEOROLOGIST_TORNADO')    { color='#7b2d8b'; fillOpacity=0.6; weight=2; }
+      else if (t === 'METEOROLOGIST_WIND_SPEED') { color='#2166ac'; fillOpacity=0.4; weight=1; }
+      else {
+        color = hailColor(m.hail_size_inches || 0);
+        fillOpacity = t === 'METEOROLOGIST_HAIL_SIZE' ? 0.7 : 0.4;
+        weight      = t === 'METEOROLOGIST_HAIL_SIZE' ? 1.5 : 0.5;
+      }
+      const layer = L.geoJSON(s.geometry, { style: { color, fillColor: color, fillOpacity, weight, opacity: 0.9 } });
+
+      const lines = [
+        `<strong>${s._stormDate}</strong>`,
+        `<em style="color:#888">${t.replace(/_/g,' ')}</em>`
+      ];
+      if (m.hail_size_inches)           lines.push(`Hail: <strong>${m.hail_size_inches}"</strong>`);
+      if (m.wind_speed_mph)             lines.push(`Wind: <strong>${m.wind_speed_mph} mph</strong>`);
+      if (m.tornado_ef_rank != null)    lines.push(`EF Rank: <strong>${m.tornado_ef_rank}</strong>`);
+      if (m.estimated_house_count)      lines.push(`Est. houses: <strong>${m.estimated_house_count.toLocaleString()}</strong>`);
+      if (m.isolated != null)           lines.push(`Isolated: ${m.isolated ? 'Yes' : 'No'}`);
+      layer.bindPopup(lines.join('<br>'), { maxWidth: 220 });
+      layerGroup.addLayer(layer);
+    });
+
+    if (visible.length > 0) {
+      const bounds = layerGroup.getBounds();
+      if (bounds.isValid()) map_.fitBounds(bounds, { padding: [40, 40] });
+    }
+  }
+
+  // ── Build storm list in sidebar ───────────────────────────────────────────
+  function buildStormList(storms) {
+    const container = document.getElementById('storm-list');
+    container.innerHTML = '';
+
+    if (!storms || storms.length === 0) {
+      container.innerHTML = '<div class="no-storms-hint">No active storms</div>';
+      return;
+    }
+
+    storms.forEach(storm => {
+      const date = storm.date;
+      const maxHail = storm.max_meteorologist_hail_size ?? storm.max_algorithm_hail_size;
+      const shapeCount = (storm.shapes || []).length;
+      const houses = (storm.shapes || []).reduce((n, s) => n + (s.meta?.estimated_house_count || 0), 0);
+
+      // Badge color by max hail
+      let badgeBg = '#48bb78', badgeText = '#fff';
+      if (maxHail >= 2)   { badgeBg = '#e94560'; }
+      else if (maxHail >= 1.5) { badgeBg = '#fd8d3c'; badgeText = '#333'; }
+      else if (maxHail >= 1)   { badgeBg = '#fecc5c'; badgeText = '#333'; }
+
+      const card = document.createElement('div');
+      card.className = 'storm-card active';
+      card.dataset.date = date;
+      card.innerHTML = `
+        <div class="storm-card-header">
+          <input type="checkbox" checked data-date="${date}" onchange="toggleStorm('${date}', this.checked)">
+          <span class="storm-date">${date}</span>
+          ${maxHail ? `<span class="storm-badge" style="background:${badgeBg};color:${badgeText}">${maxHail}"</span>` : ''}
+        </div>
+        <div class="storm-stats">
+          <span class="storm-stat"><strong>${shapeCount.toLocaleString()}</strong> shapes</span>
+          ${houses > 0 ? `<span class="storm-stat"><strong>${houses.toLocaleString()}</strong> houses</span>` : ''}
+        </div>
+      `;
+      container.appendChild(card);
+    });
+  }
+
+  function toggleStorm(date, checked) {
+    if (checked) activeStormDates.add(date);
+    else activeStormDates.delete(date);
+
+    // Update card style
+    document.querySelectorAll('.storm-card').forEach(card => {
+      card.classList.toggle('active', activeStormDates.has(card.dataset.date));
+    });
+
+    applyFilters();
+  }
+
+  // ── Load storm data (now handles array) ───────────────────────────────────
+  function loadData(data) {
+    // Normalize: accept single object OR array
+    let storms = Array.isArray(data) ? data : (data.shapes ? [data] : []);
+    storms = storms.filter(s => s.shapes && s.shapes.length > 0);
+
+    if (storms.length === 0) {
+      showWaiting();
+      return;
+    }
+
+    document.getElementById('waiting-overlay').classList.remove('show');
+
+    // Tag every shape with its storm date and flatten
+    allShapes = [];
+    activeStormDates = new Set();
+    storms.forEach(storm => {
+      activeStormDates.add(storm.date);
+      (storm.shapes || []).forEach(shape => {
+        allShapes.push({ ...shape, _stormDate: storm.date });
+      });
+    });
+
+    // Header stats
+    const totalShapes = allShapes.length;
+    const allHail = storms.map(s => s.max_meteorologist_hail_size ?? s.max_algorithm_hail_size).filter(Boolean);
+    const maxHail = allHail.length ? Math.max(...allHail) : null;
+
+    document.getElementById('h-storms').style.display  = 'block';
+    document.getElementById('h-hail').style.display    = 'block';
+    document.getElementById('h-shapes').style.display  = 'block';
+    document.getElementById('hv-storms').textContent   = storms.length;
+    document.getElementById('hv-hail').textContent     = maxHail ?? '—';
+    document.getElementById('hv-shapes').textContent   = totalShapes.toLocaleString();
+
+    const pill = document.getElementById('status-pill');
+    pill.textContent = `⚡ ${storms.length} Active Storm${storms.length > 1 ? 's' : ''}`;
+    pill.className = 'status-pill pill-active';
+    const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    document.getElementById('last-updated').textContent = `Updated ${now}`;
+
+    buildStormList(storms);
+    applyFilters();
+  }
+
+  function showWaiting() {
+    allShapes = [];
+    activeStormDates = new Set();
+    document.getElementById('storm-list').innerHTML = '<div class="no-storms-hint">No active storms</div>';
+    document.getElementById('waiting-overlay').classList.add('show');
+    const pill = document.getElementById('status-pill');
+    pill.textContent = 'No Active Storms'; pill.className = 'status-pill pill-waiting';
+    ['h-storms','h-hail','h-shapes'].forEach(id => document.getElementById(id).style.display = 'none');
+  }
+
+  // ── Fetch from Gist ───────────────────────────────────────────────────────
+  async function fetchGist() {
+    const pill = document.getElementById('status-pill');
+    pill.textContent = '⟳ Loading…'; pill.className = 'status-pill pill-loading';
+    try {
+      const res  = await fetch(GIST_URL + '?t=' + Date.now());
+      const data = await res.json();
+      loadData(data);
+    } catch (err) {
+      console.error('Gist fetch failed:', err);
+      pill.textContent = 'Fetch Error'; pill.className = 'status-pill pill-waiting';
+    }
+  }
+
+  // ── Auto-refresh ──────────────────────────────────────────────────────────
+  function toggleAutoRefresh() {
+    clearInterval(refreshTimer);
+    if (document.getElementById('auto-refresh').checked)
+      refreshTimer = setInterval(fetchGis
