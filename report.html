@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Storm Impact Report — Stinson Services</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Arial, sans-serif; font-size: 13px; background: #f0f0f0; color: #333; }
+
+  /* ── Nav tabs ── */
+  #nav-tabs { background: #0f1e3a; display: flex; border-bottom: 1px solid #0f3460; }
+  .nav-tab { padding: 8px 20px; font-size: 12px; font-weight: 600; color: #778; text-decoration: none; cursor: pointer; border-bottom: 3px solid transparent; transition: color 0.15s; white-space: nowrap; }
+  .nav-tab:hover { color: #ccd; }
+  .nav-tab.active { color: #e94560; border-bottom-color: #e94560; }
+  @media print { #nav-tabs { display: none !important; } }
+
+  /* ── Search form (screen only) ── */
+  .search-bar {
+    background: #1a3a5c; color: #fff; padding: 18px 24px;
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  }
+  .search-bar h1 { font-size: 16px; font-weight: bold; white-space: nowrap; }
+  .search-bar input {
+    flex: 1; min-width: 280px; padding: 9px 14px; border: none; border-radius: 4px;
+    font-size: 14px; outline: none;
+  }
+  .search-bar button {
+    background: #e05a1e; color: #fff; border: none; border-radius: 4px;
+    padding: 9px 22px; font-size: 14px; font-weight: bold; cursor: pointer; white-space: nowrap;
+  }
+  .search-bar button:hover { background: #c44d15; }
+  .search-bar .tip { font-size: 11px; color: #aac; flex-basis: 100%; }
+  #status-msg { font-size: 13px; color: #ffdd88; padding: 8px 24px; background: #1a3a5c; border-top: 1px solid #2a4a6c; display: none; }
+
+  /* ── Report wrapper ── */
+  #report {
+    display: none; max-width: 820px; margin: 24px auto; background: #fff;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.15);
+  }
+
+  /* ── Report header ── */
+  .rpt-header {
+    padding: 20px 28px; display: flex; justify-content: space-between; align-items: flex-start;
+    border-bottom: 2px solid #e0e0e0;
+  }
+  .rpt-brand { display: flex; align-items: flex-start; gap: 14px; }
+  .rpt-logo {
+    width: 68px; height: 68px; background: #1a3a5c; border-radius: 4px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    color: #fff; font-weight: 900; font-size: 11px; text-align: center; line-height: 1.2;
+    letter-spacing: 0.5px;
+  }
+  .rpt-logo span { font-size: 17px; font-weight: 900; letter-spacing: 1px; }
+  .rpt-brand-info h2 { font-size: 15px; font-weight: bold; margin-bottom: 3px; }
+  .rpt-brand-info p { font-size: 12px; color: #555; line-height: 1.6; }
+  .rpt-brand-info a { color: #2266cc; text-decoration: none; }
+  .rpt-title { text-align: right; }
+  .rpt-title h3 { font-size: 16px; color: #1a3a5c; margin-bottom: 4px; }
+  .rpt-title p { font-size: 12px; color: #555; line-height: 1.7; }
+
+  /* ── Section header ── */
+  .section-hdr {
+    background: #f0f0f0; border-top: 1px solid #ddd; border-bottom: 1px solid #ddd;
+    text-align: center; padding: 10px; font-style: italic; font-size: 14px;
+    color: #444; margin: 0;
+  }
+  .section-body { padding: 20px 28px; }
+
+  /* ── Property info ── */
+  .prop-row { display: flex; gap: 20px; align-items: flex-start; }
+  #mini-map { width: 260px; height: 200px; flex-shrink: 0; border: 1px solid #ccc; border-radius: 3px; }
+  .prop-details p { font-size: 13px; line-height: 1.8; }
+  .prop-details .addr { font-size: 15px; font-weight: bold; margin-bottom: 6px; }
+  .prop-details .owner { font-size: 13px; color: #555; }
+
+  /* ── Impact details grid ── */
+  .impact-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 0;
+    border: 1px solid #e0e0e0; border-radius: 3px; overflow: hidden;
+  }
+  .ig-row { display: contents; }
+  .ig-label {
+    padding: 8px 14px; background: #fafafa; color: #555; font-size: 12px;
+    border-bottom: 1px solid #e8e8e8; border-right: 1px solid #e8e8e8; text-align: right;
+  }
+  .ig-val {
+    padding: 8px 14px; font-size: 13px; font-weight: bold; color: #222;
+    border-bottom: 1px solid #e8e8e8;
+  }
+  .ig-val.warn { color: #c0392b; }
+  .ig-val.good { color: #27ae60; }
+
+  /* ── Narrative ── */
+  .narrative { font-size: 13px; line-height: 1.8; color: #333; max-width: 600px; margin: 0 auto; }
+
+  /* ── Zone table ── */
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th { background: #1a3a5c; color: #fff; padding: 8px 10px; text-align: left; }
+  td { padding: 7px 10px; border-bottom: 1px solid #e8e8e8; }
+  tr:nth-child(even) td { background: #f9f9f9; }
+  .badge {
+    display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px;
+    font-weight: bold; color: #fff;
+  }
+  .badge-hail { background: #2980b9; }
+  .badge-wind { background: #8e44ad; }
+  .badge-tornado { background: #c0392b; }
+  .badge-algo { background: #7f8c8d; }
+
+  /* ── CTA ── */
+  .cta-box {
+    background: #1a3a5c; color: #fff; border-radius: 4px; padding: 20px 24px;
+    text-align: center;
+  }
+  .cta-box h3 { font-size: 17px; margin-bottom: 8px; }
+  .cta-box p { font-size: 13px; margin-bottom: 14px; color: #ccdcf0; line-height: 1.6; }
+  .cta-btn {
+    display: inline-block; background: #e05a1e; color: #fff; padding: 10px 28px;
+    border-radius: 4px; text-decoration: none; font-weight: bold; font-size: 14px; margin: 4px;
+  }
+  .cta-tel { font-size: 20px; font-weight: bold; display: block; margin: 10px 0 4px; }
+
+  /* ── Disclaimer ── */
+  .disclaimer { font-size: 11px; color: #888; line-height: 1.6; }
+
+  /* ── No-hit message ── */
+  .no-hit-box {
+    background: #f9f9e8; border: 1px solid #e0d870; border-radius: 4px;
+    padding: 20px 24px; text-align: center; color: #666;
+  }
+  .no-hit-box h3 { color: #888; margin-bottom: 8px; }
+
+  /* ── Print styles ── */
+  @media print {
+    body { background: #fff; }
+    .search-bar, #status-msg { display: none !important; }
+    #report { display: block !important; max-width: 100%; margin: 0; box-shadow: none; }
+    .cta-btn { border: 2px solid #e05a1e; }
+    #mini-map { border: 1px solid #ccc; }
+    a { color: #2266cc; }
+    .section-hdr { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .rpt-logo, th, .cta-box { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  }
+</style>
+</head>
+<body>
+
+<div id="nav-tabs">
+  <a class="nav-tab" href="index.html">⛈ Storm Map</a>
+  <a class="nav-tab active" href="report.html">📋 Impact Reports</a>
+</div>
+
+<!-- ── Search Bar ── -->
+<div class="search-bar">
+  <h1>⛈ Storm Impact Report Generator</h1>
+  <input type="text" id="addr-input" placeholder="Enter property address (e.g. 4840 Westgate Rd, Minnetonka, MN)" />
+  <button onclick="generateReport()">Generate Report</button>
+  <div class="tip">Checks address against live storm data from the Storm Command Center</div>
+</div>
+<div id="status-msg"></div>
+
+<!-- ── Report (hidden until generated) ── -->
+<div id="report">
+
+  <!-- Header -->
+  <div class="rpt-header">
+    <div class="rpt-brand">
+      <div class="rpt-logo">
+        <span>STINSON</span>
+        <div style="font-size:8px;margin-top:2px">ROOFING &amp;</div>
+        <div style="font-size:8px">RECONSTRUCTION</div>
+      </div>
+      <div class="rpt-brand-info">
+        <h2>Stinson Services</h2>
+        <p>
+          7391 Bush Lake Rd<br>
+          Edina, MN 55439<br>
+          952-300-6614<br>
+          <a href="https://stinsonservices.com">stinsonservices.com</a>
+        </p>
+      </div>
+    </div>
+    <div class="rpt-title">
+      <h3>Storm Impact Report</h3>
+      <p id="rpt-meta"></p>
+    </div>
+  </div>
+
+  <!-- Property Information -->
+  <div class="section-hdr">Property Information</div>
+  <div class="section-body">
+    <div class="prop-row">
+      <div id="mini-map"></div>
+      <div class="prop-details" style="padding-top:8px">
+        <p class="addr" id="rpt-address"></p>
+        <p class="owner" id="rpt-owner"></p>
+        <p style="margin-top:12px;font-size:12px;color:#888">Coordinates: <span id="rpt-coords"></span></p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Storm Impact Details -->
+  <div class="section-hdr">Storm Impact Details</div>
+  <div class="section-body" id="impact-details-body"></div>
+
+  <!-- Narrative -->
+  <div class="section-hdr">Storm Impact Narrative</div>
+  <div class="section-body">
+    <p class="narrative" id="rpt-narrative"></p>
+  </div>
+
+  <!-- Zone Details -->
+  <div id="zone-section">
+    <div class="section-hdr">Zone Details</div>
+    <div class="section-body">
+      <table id="zone-table">
+        <thead>
+          <tr>
+            <th>Storm Date</th>
+            <th>Zone Type</th>
+            <th>Hail Size</th>
+            <th>Wind Speed</th>
+            <th>Tornado EF</th>
+            <th>Est. Houses Affected</th>
+          </tr>
+        </thead>
+        <tbody id="zone-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- No impact message -->
+  <div id="no-hit-section" style="display:none">
+    <div class="section-hdr">Impact Assessment</div>
+    <div class="section-body">
+      <div class="no-hit-box">
+        <h3>No Storm Impact Detected</h3>
+        <p>This property does not fall within any active hail, wind, or tornado zones in the current storm data.<br>
+        Contact Stinson Services with any questions.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- CTA -->
+  <div class="section-hdr">Schedule Your Free Inspection</div>
+  <div class="section-body">
+    <div class="cta-box">
+      <h3>Your property may have sustained damage</h3>
+      <p>
+        Stinson Services provides free, no-obligation storm damage inspections.<br>
+        We work directly with your insurance company to document and file your claim.
+      </p>
+      <a class="cta-tel" href="tel:9523006614">952-300-6614</a>
+      <a class="cta-btn" href="https://stinsonservices.com">stinsonservices.com</a>
+    </div>
+  </div>
+
+  <!-- Disclaimer -->
+  <div class="section-hdr">Disclaimer</div>
+  <div class="section-body">
+    <p class="disclaimer">
+      Storm zone data is sourced from HailTrace meteorologist-verified weather event data and NOAA NEXRAD radar analysis. 
+      Stinson Services makes no representations or warranties that the information in this report is complete or free from 
+      defects. This report is intended to assist homeowners in understanding potential weather impact and does not constitute 
+      a damage assessment. A physical inspection is required to determine actual property damage.
+    </p>
+  </div>
+
+  <!-- Print button (screen only) -->
+  <div class="section-body no-print" style="text-align:center;border-top:1px solid #e0e0e0">
+    <button onclick="window.print()" style="background:#1a3a5c;color:#fff;border:none;padding:10px 30px;border-radius:4px;font-size:14px;cursor:pointer;margin:4px">
+      🖨 Print / Save as PDF
+    </button>
+    <button onclick="resetForm()" style="background:#eee;color:#333;border:none;padding:10px 20px;border-radius:4px;font-size:14px;cursor:pointer;margin:4px">
+      ← New Report
+    </button>
+  </div>
+
+</div><!-- end #report -->
+
+<script>
+const GIST_URL = "https://gist.githubusercontent.com/l-josefson/30975354bdcb09e84216ed9300d8cde6/raw/current-storm.json";
+
+var miniMap = null;
+
+function setStatus(msg, show) {
+  var el = document.getElementById("status-msg");
+  el.textContent = msg;
+  el.style.display = show ? "block" : "none";
+}
+
+function resetForm() {
+  document.getElementById("report").style.display = "none";
+  document.getElementById("addr-input").value = "";
+  setStatus("", false);
+  if (miniMap) { miniMap.remove(); miniMap = null; }
+}
+
+async function generateReport() {
+  var address = document.getElementById("addr-input").value.trim();
+  if (!address) { alert("Please enter a property address."); return; }
+
+  setStatus("Geocoding address…", true);
+
+  // 1. Geocode
+  var geo;
+  try {
+    var url = "https://nominatim.openstreetmap.org/search?format=json&countrycodes=us&limit=1&q=" + encodeURIComponent(address);
+    var res = await fetch(url, { headers: { "Accept-Language": "en" } });
+    var results = await res.json();
+    if (!results.length) { setStatus("Address not found. Try adding city and state.", true); return; }
+    geo = results[0];
+  } catch(e) {
+    setStatus("Geocoding failed: " + e.message, true);
+    return;
+  }
+
+  var lat = parseFloat(geo.lat);
+  var lng = parseFloat(geo.lon);
+  var displayAddr = geo.display_name.split(",").slice(0,4).join(", ");
+
+  setStatus("Loading storm data…", true);
+
+  // 2. Fetch Gist
+  var storms;
+  try {
+    var r2 = await fetch(GIST_URL + "?_=" + Date.now());
+    var data = await r2.json();
+    storms = Array.isArray(data) ? data : (data.shapes ? [data] : []);
+    storms = storms.filter(function(s) { return s.shapes && s.shapes.length > 0; });
+  } catch(e) {
+    setStatus("Could not load storm data: " + e.message, true);
+    return;
+  }
+
+  setStatus("Checking storm zones…", true);
+
+  // 3. Point-in-polygon check
+  var hits = []; // { stormDate, shape }
+  storms.forEach(function(storm) {
+    storm.shapes.forEach(function(shape) {
+      if (pointInGeoJSON(lat, lng, shape.geometry)) {
+        hits.push({ storm: storm, shape: shape });
+      }
+    });
+  });
+
+  setStatus("", false);
+
+  // 4. Render report
+  renderReport(address, displayAddr, lat, lng, hits, storms);
+}
+
+function renderReport(rawAddr, displayAddr, lat, lng, hits, storms) {
+  var now = new Date();
+  var dateStr = now.toLocaleDateString("en-US", { year: "numeric", month: "numeric", day: "numeric" }) + " " +
+                now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }) + " CDT";
+
+  // Meta
+  document.getElementById("rpt-meta").innerHTML =
+    "Date: " + dateStr + "<br>Data: HailTrace / Storm Command Center";
+
+  // Address
+  document.getElementById("rpt-address").textContent = rawAddr;
+  document.getElementById("rpt-owner").textContent = "";
+  document.getElementById("rpt-coords").textContent = lat.toFixed(5) + ", " + lng.toFixed(5);
+
+  // Map
+  if (miniMap) { miniMap.remove(); }
+  miniMap = L.map("mini-map", { zoomControl: true, scrollWheelZoom: false }).setView([lat, lng], 13);
+  L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", {
+    attribution: "© OpenStreetMap contributors"
+  }).addTo(miniMap);
+  var pinIcon = L.divIcon({
+    className: "",
+    html: '<div style="width:14px;height:14px;background:#e05a1e;border:3px solid #fff;border-radius:50%;box-shadow:0 1px 4px rgba(0,0,0,0.5)"></div>',
+    iconSize: [14, 14], iconAnchor: [7, 7]
+  });
+  L.marker([lat, lng], { icon: pinIcon }).addTo(miniMap);
+
+  // Summarize hit data
+  var maxHail = 0, maxWind = 0, maxTornado = null, stormDates = [];
+  var uniqueDates = {};
+  hits.forEach(function(h) {
+    var t = h.shape.weather_type;
+    var m = h.shape.meta;
+    if (!uniqueDates[h.storm.date]) {
+      uniqueDates[h.storm.date] = true;
+      stormDates.push(h.storm.date);
+    }
+    if ((t === "METEOROLOGIST_HAIL_SIZE" || t === "ALGORITHM_HAIL_SIZE") && m.hail_size_inches) {
+      if (m.hail_size_inches > maxHail) maxHail = m.hail_size_inches;
+    }
+    if (t === "METEOROLOGIST_WIND_SPEED" && m.wind_speed_mph) {
+      if (m.wind_speed_mph > maxWind) maxWind = m.wind_speed_mph;
+    }
+    if (t === "METEOROLOGIST_TORNADO" && m.tornado_ef_rank !== undefined) {
+      if (maxTornado === null || m.tornado_ef_rank > maxTornado) maxTornado = m.tornado_ef_rank;
+    }
+  });
+
+  // Impact details grid
+  var hasHit = hits.length > 0;
+  var detailsHtml = "";
+  if (hasHit) {
+    detailsHtml = '<div class="impact-grid">';
+    detailsHtml += igRow("Storm Date(s)", stormDates.join(", "), stormDates.length > 1 ? "warn" : "");
+    detailsHtml += igRow("Max Hail Detected", maxHail > 0 ? maxHail.toFixed(2) + '"' : "—", maxHail >= 1 ? "warn" : "");
+    detailsHtml += igRow("Max Wind Speed", maxWind > 0 ? maxWind + " mph" : "—", maxWind >= 58 ? "warn" : "");
+    detailsHtml += igRow("Tornado Activity", maxTornado !== null ? "EF-" + maxTornado : "None detected", maxTornado !== null ? "warn" : "good");
+    detailsHtml += igRow("Zones Impacted", hits.length + " zone(s)", hits.length > 0 ? "warn" : "good");
+    detailsHtml += igRow("Inspection Recommended", "Yes — contact Stinson Services", "warn");
+    detailsHtml += "</div>";
+  } else {
+    detailsHtml = '<div class="impact-grid">' +
+      igRow("Storms Checked", storms.length + " storm event(s)", "") +
+      igRow("Impact Detected", "No impact in active storm zones", "good") +
+      igRow("Recommendation", "No inspection required at this time", "good") +
+      "</div>";
+  }
+  document.getElementById("impact-details-body").innerHTML = detailsHtml;
+
+  // Narrative
+  var narrative = "";
+  if (hasHit) {
+    var stormDateWord = stormDates.length === 1 ? "a storm event on " + stormDates[0] : "storm events on " + stormDates.join(" and ");
+    narrative = "The property located at " + rawAddr + " falls within a confirmed impact zone from " + stormDateWord + ". ";
+    if (maxHail > 0) {
+      narrative += "Meteorologist-verified hail as large as " + maxHail.toFixed(2) + '" was detected in the affected zone. ';
+      if (maxHail >= 1.0) narrative += "Hail of this size is known to cause damage to roofing materials, gutters, siding, and vehicles. ";
+    }
+    if (maxWind > 0) narrative += "Wind speeds up to " + maxWind + " mph were also recorded in the area. ";
+    if (maxTornado !== null) narrative += "A tornado (EF-" + maxTornado + ") was detected in the storm zone. ";
+    narrative += "Stinson Services recommends scheduling a free professional inspection to document any damage before filing an insurance claim.";
+  } else {
+    narrative = "Based on current storm data, the property located at " + rawAddr + " does not fall within any active meteorologist-verified hail, wind, or tornado impact zones. No inspection is recommended at this time based on available storm data. Contact Stinson Services if you believe your property sustained damage not reflected in this report.";
+  }
+  document.getElementById("rpt-narrative").textContent = narrative;
+
+  // Zone table
+  if (hasHit) {
+    var tbody = "";
+    hits.forEach(function(h) {
+      var t = h.shape.weather_type;
+      var m = h.shape.meta;
+      var typeLabel = "", typeClass = "";
+      if (t === "METEOROLOGIST_HAIL_SIZE") { typeLabel = "Hail (Meteorologist)"; typeClass = "badge-hail"; }
+      else if (t === "ALGORITHM_HAIL_SIZE") { typeLabel = "Hail (Algorithm)"; typeClass = "badge-algo"; }
+      else if (t === "METEOROLOGIST_WIND_SPEED") { typeLabel = "Wind Speed"; typeClass = "badge-wind"; }
+      else if (t === "METEOROLOGIST_TORNADO") { typeLabel = "Tornado"; typeClass = "badge-tornado"; }
+
+      tbody += "<tr>";
+      tbody += "<td>" + h.storm.date + "</td>";
+      tbody += '<td><span class="badge ' + typeClass + '">' + typeLabel + "</span></td>";
+      tbody += "<td>" + (m.hail_size_inches ? m.hail_size_inches.toFixed(2) + '"' : "—") + "</td>";
+      tbody += "<td>" + (m.wind_speed_mph ? m.wind_speed_mph + " mph" : "—") + "</td>";
+      tbody += "<td>" + (m.tornado_ef_rank !== undefined ? "EF-" + m.tornado_ef_rank : "—") + "</td>";
+      tbody += "<td>" + (m.estimated_house_count ? m.estimated_house_count.toLocaleString() : "—") + "</td>";
+      tbody += "</tr>";
+    });
+    document.getElementById("zone-tbody").innerHTML = tbody;
+    document.getElementById("zone-section").style.display = "block";
+    document.getElementById("no-hit-section").style.display = "none";
+  } else {
+    document.getElementById("zone-section").style.display = "none";
+    document.getElementById("no-hit-section").style.display = "block";
+  }
+
+  // Show report
+  document.getElementById("report").style.display = "block";
+  document.getElementById("report").scrollIntoView({ behavior: "smooth" });
+
+  // Refresh map tiles after display
+  setTimeout(function() { if (miniMap) miniMap.invalidateSize(); }, 200);
+}
+
+function igRow(label, val, cls) {
+  return '<div class="ig-row"><div class="ig-label">' + label + '</div><div class="ig-val ' + (cls||'') + '">' + val + '</div></div>';
+}
+
+// ── Point-in-polygon (ray casting) ──
+function pointInRing(lat, lng, ring) {
+  var inside = false;
+  for (var i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    var xi = ring[i][0], yi = ring[i][1]; // GeoJSON [lng, lat]
+    var xj = ring[j][0], yj = ring[j][1];
+    var intersect = ((yi > lat) !== (yj > lat)) &&
+      (lng < (xj - xi) * (lat - yi) / (yj - yi) + xi);
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
+
+function pointInGeoJSON(lat, lng, geometry) {
+  if (!geometry) return false;
+  var type = geometry.type;
+  var coords = geometry.coordinates;
+  if (type === "Polygon") {
+    if (!point
