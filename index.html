@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HailTrace Storm Command Center</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f0f2f5; color: #222; height: 100vh; display: flex; flex-direction: column; }
+    #header { background: #16213e; border-bottom: 1px solid #0f3460; padding: 10px 16px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; flex-shrink: 0; }
+    #header h1 { font-size: 14px; font-weight: 700; color: #e94560; white-space: nowrap; }
+    .header-meta { font-size: 12px; color: #aaa; }
+    .header-meta span { color: #fff; font-weight: 600; }
+    .header-spacer { flex: 1; }
+    .status-pill { font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 20px; text-transform: uppercase; letter-spacing: 0.4px; white-space: nowrap; }
+    .pill-active  { background: #e94560; color: #fff; }
+    .pill-waiting { background: #0f3460; color: #aaa; }
+    .pill-loading { background: #1a4a8a; color: #9ab; }
+    #last-updated { font-size: 11px; color: #556; white-space: nowrap; }
+    .btn-icon { background: none; border: 1px solid #334; border-radius: 5px; color: #aaa; padding: 4px 9px; font-size: 12px; cursor: pointer; }
+    .btn-icon:hover { background: #0f3460; color: #fff; border-color: #0f3460; }
+    #body { display: flex; flex: 1; overflow: hidden; }
+    #panel { width: 240px; flex-shrink: 0; background: #fff; border-right: 1px solid #dde; padding: 14px; overflow-y: auto; }
+    .panel-section { margin-bottom: 18px; }
+    .panel-title { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: #999; margin-bottom: 9px; }
+    .storm-card { border: 1px solid #e0e4ea; border-radius: 7px; padding: 8px 10px; margin-bottom: 8px; cursor: pointer; transition: border-color 0.15s; }
+    .storm-card.active { border-color: #e94560; background: #fff5f7; }
+    .storm-card-header { display: flex; align-items: center; gap: 7px; }
+    .storm-card input[type=checkbox] { accent-color: #e94560; width: 14px; height: 14px; flex-shrink: 0; }
+    .storm-date { font-size: 13px; font-weight: 700; color: #222; }
+    .storm-badge { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 10px; margin-left: auto; white-space: nowrap; }
+    .storm-stats { display: flex; gap: 10px; margin-top: 5px; padding-left: 21px; }
+    .storm-stat { font-size: 11px; color: #666; }
+    .storm-stat strong { color: #333; }
+    .filter-item { display: flex; align-items: center; gap: 7px; padding: 3px 0; font-size: 12px; cursor: pointer; color: #333; }
+    .f-swatch { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
+    select.filter-sel { width: 100%; background: #f5f7fa; border: 1px solid #dde; border-radius: 4px; padding: 5px 7px; font-size: 11px; color: #333; margin-top: 6px; }
+    .legend-item { display: flex; align-items: center; gap: 7px; font-size: 11px; padding: 2px 0; color: #444; }
+    .legend-dot { width: 12px; height: 12px; border-radius: 2px; flex-shrink: 0; }
+    #map-wrap { flex: 1; position: relative; }
+    #map { width: 100%; height: 100%; }
+    #waiting-overlay { position: absolute; inset: 0; background: rgba(240,242,245,0.93); display: none; flex-direction: column; align-items: center; justify-content: center; gap: 14px; z-index: 500; }
+    #waiting-overlay.show { display: flex; }
+    #waiting-overlay h2 { font-size: 20px; color: #e94560; }
+    #waiting-overlay p { font-size: 13px; color: #888; text-align: center; max-width: 300px; line-height: 1.6; }
+    #drop-overlay { position: absolute; inset: 0; background: rgba(15,52,96,0.88); display: none; flex-direction: column; align-items: center; justify-content: center; gap: 14px; z-index: 400; }
+    #drop-overlay.show { display: flex; }
+    #drop-overlay h2 { color: #fff; }
+    #drop-overlay p { font-size: 13px; color: #aac; }
+    #drop-overlay label { background: #e94560; color: #fff; padding: 11px 26px; border-radius: 7px; cursor: pointer; font-size: 14px; font-weight: 600; }
+    #drop-overlay label:hover { background: #c73652; }
+    #file-input { display: none; }
+    .no-storms-hint { font-size: 11px; color: #aaa; text-align: center; padding: 8px 0; }
+    #search-bar { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 600; display: flex; box-shadow: 0 2px 10px rgba(0,0,0,0.2); border-radius: 7px; overflow: hidden; width: 380px; max-width: calc(100% - 40px); }
+    #search-input { flex: 1; border: none; padding: 10px 14px; font-size: 13px; outline: none; background: #fff; color: #222; }
+    #search-btn { background: #e94560; color: #fff; border: none; padding: 10px 16px; font-size: 13px; cursor: pointer; font-weight: 600; white-space: nowrap; }
+    #search-btn:hover { background: #c73652; }
+    #search-result { position: absolute; top: 54px; left: 50%; transform: translateX(-50%); z-index: 600; background: #fff; border-radius: 7px; padding: 10px 14px; font-size: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.2); max-width: 380px; width: max-content; display: none; line-height: 1.5; }
+    #search-result.show { display: block; }
+    .result-hit  { border-left: 3px solid #e94560; padding-left: 8px; }
+    .result-miss { border-left: 3px solid #48bb78; padding-left: 8px; }
+    #nav-tabs { background: #0f1e3a; display: flex; flex-shrink: 0; border-bottom: 1px solid #0f3460; }
+    .nav-tab { padding: 8px 20px; font-size: 12px; font-weight: 600; color: #778; text-decoration: none; cursor: pointer; border-bottom: 3px solid transparent; transition: color 0.15s; white-space: nowrap; }
+    .nav-tab:hover { color: #ccd; }
+    .nav-tab.active { color: #e94560; border-bottom-color: #e94560; }
+  </style>
+</head>
+<body>
+<div id="header">
+  <h1>Storm Command Center - Stinson Services</h1>
+  <div class="header-meta" id="h-storms" style="display:none">Storms: <span id="hv-storms">-</span></div>
+  <div class="header-meta" id="h-hail" style="display:none">Max Hail: <span id="hv-hail">-</span>"</div>
+  <div class="header-meta" id="h-shapes" style="display:none">Total Shapes: <span id="hv-shapes">-</span></div>
+  <div class="header-spacer"></div>
+  <span id="last-updated"></span>
+  <span id="status-pill" class="status-pill pill-loading">Loading...</span>
+  <button class="btn-icon" id="map-style-btn" onclick="toggleMapStyle()">Dark</button>
+  <button class="btn-icon" onclick="fetchGist()">Refresh</button>
+</div>
+<div id="nav-tabs">
+  <a class="nav-tab active" href="index.html">⛈ Storm Map</a>
+  <a class="nav-tab" href="report.html">📋 Impact Reports</a>
+</div>
+<div id="body">
+  <div id="panel">
+    <div class="panel-section">
+      <div class="panel-title">Active Storms</div>
+      <div id="storm-list"><div class="no-storms-hint">No active storms</div></div>
+    </div>
+    <div class="panel-section">
+      <div class="panel-title">Show Layers</div>
+      <label class="filter-item"><input type="checkbox" id="f-algo" checked onchange="applyFilters()"><span class="f-swatch" style="background:#fecc5c;border:1px solid #fd8d3c"></span> Algorithm Hail</label>
+      <label class="filter-item"><input type="checkbox" id="f-met" checked onchange="applyFilters()"><span class="f-swatch" style="background:#bd0026"></span> Meteorologist Hail</label>
+      <label class="filter-item"><input type="checkbox" id="f-tornado" checked onchange="applyFilters()"><span class="f-swatch" style="background:#7b2d8b"></span> Tornado</label>
+      <label class="filter-item"><input type="checkbox" id="f-wind" checked onchange="applyFilters()"><span class="f-swatch" style="background:#2166ac"></span> Wind Speed</label>
+      <div style="font-size:11px;color:#999;margin-top:8px">Min hail size:</div>
+      <select id="min-hail" class="filter-sel" onchange="applyFilters()">
+        <option value="0">All sizes (0.75"+)</option>
+        <option value="1">1.00"+ dime</option>
+        <option value="1.25">1.25"+</option>
+        <option value="1.5">1.50"+</option>
+        <option value="1.75">1.75"+</option>
+        <option value="2">2.00"+ quarter</option>
+        <option value="2.5">2.50"+</option>
+      </select>
+    </div>
+    <div class="panel-section">
+      <div class="panel-title">Hail Size Legend</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#ffffb2"></div> 0.75" - pea</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#fecc5c"></div> 1.00" - dime</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#fd8d3c"></div> 1.25-1.50"</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#f03b20"></div> 1.75-2.00"</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#bd0026"></div> 2.25"+ golf ball</div>
+      <div class="legend-item" style="margin-top:5px"><div class="legend-dot" style="background:#7b2d8b"></div> Tornado</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#2166ac"></div> Wind speed</div>
+    </div>
+    <div class="panel-section">
+      <div class="panel-title">Data Source</div>
+      <div style="font-size:10px;color:#aaa;font-family:monospace;background:#f5f7fa;border-radius:4px;padding:6px 8px;word-break:break-all;line-height:1.5">GitHub Gist<br>current-storm.json</div>
+      <div style="margin-top:8px">
+        <label class="filter-item">
+          <input type="checkbox" id="auto-refresh" onchange="toggleAutoRefresh()">
+          <span style="font-size:12px;color:#666">Auto-refresh (5 min)</span>
+        </label>
+      </div>
+    </div>
+  </div>
+  <div id="map-wrap">
+    <div id="map"></div>
+    <div id="search-bar">
+      <input id="search-input" type="text" placeholder="Search address (e.g. 123 Main St, Minneapolis MN)" />
+      <button id="search-btn" onclick="searchAddress()">Search</button>
+    </div>
+    <div id="search-result"></div>
+    <div id="waiting-overlay">
+      <div style="font-size:40px">sunny</div>
+      <h2>No Active Storms</h2>
+      <p>Make will update current-storm.json on GitHub Gist when a HailTrace alert fires.</p>
+      <button class="btn-icon" style="margin-top:4px;color:#e94560;border-color:#e94560" onclick="fetchGist()">Check Now</button>
+    </div>
+    <div id="drop-overlay">
+      <h2>Drop a storm file</h2>
+      <p>Or click to choose a HailTrace JSON file</p>
+      <label for="file-input">Choose JSON File</label>
+      <input type="file" id="file-input" accept=".json">
+    </div>
+  </div>
+</div>
+<script>
+  var GIST_URL = "https://gist.githubusercontent.com/l-josefson/30975354bdcb09e84216ed9300d8cde6/raw/current-storm.json";
+  var map_, featureGroup, tileLayer, allShapes = [], activeStormDates = new Set(), refreshTimer = null, searchMarker = null;
+
+  var TILES = {
+    light: { url: "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", label: "Dark", next: "dark" },
+    dark:  { url: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", label: "Light", next: "light" }
+  };
+  var currentStyle = "light";
+
+  map_ = L.map("map", { zoomControl: true }).setView([44, -93], 5);
+  tileLayer = L.tileLayer(TILES[currentStyle].url, { attribution: "OpenStreetMap / CARTO", maxZoom: 19 }).addTo(map_);
+  featureGroup = L.featureGroup().addTo(map_);
+
+  function toggleMapStyle() {
+    currentStyle = TILES[currentStyle].next;
+    map_.removeLayer(tileLayer);
+    tileLayer = L.tileLayer(TILES[currentStyle].url, { attribution: "OpenStreetMap / CARTO", maxZoom: 19 }).addTo(map_);
+    tileLayer.bringToBack();
+    document.getElementById("map-style-btn").textContent = TILES[currentStyle].label;
+  }
+
+  function hailColor(size) {
+    if (size >= 2.25) return "#bd0026";
+    if (size >= 1.75) return "#f03b20";
+    if (size >= 1.25) return "#fd8d3c";
+    if (size >= 1.0)  return "#fecc5c";
+    return "#ffffb2";
+  }
+
+  function applyFilters() {
+    featureGroup.clearLayers();
+    var showAlgo    = document.getElementById("f-algo").checked;
+    var showMet     = document.getElementById("f-met").checked;
+    var showTornado = document.getElementById("f-tornado").checked;
+    var showWind    = document.getElementById("f-wind").checked;
+    var minHail     = parseFloat(document.getElementById("min-hail").value) || 0;
+
+    var visible = allShapes.filter(function(s) {
+      if (!activeStormDates.has(s._stormDate)) return false;
+      var t = s.weather_type, m = s.meta || {};
+      if (t === "ALGORITHM_HAIL_SIZE"      && !showAlgo)    return false;
+      if (t === "METEOROLOGIST_HAIL_SIZE"  && !showMet)     return false;
+      if (t === "METEOROLOGIST_TORNADO"    && !showTornado) return false;
+      if (t === "METEOROLOGIST_WIND_SPEED" && !showWind)    return false;
+      if ((t === "ALGORITHM_HAIL_SIZE" || t === "METEOROLOGIST_HAIL_SIZE") && (m.hail_size_inches || 0) < minHail) return false;
+      return true;
+    });
+
+    visible.forEach(function(s) {
+      var t = s.weather_type, m = s.meta || {};
+      var color, fillOpacity, weight;
+      if (t === "METEOROLOGIST_TORNADO")         { color="#7b2d8b"; fillOpacity=0.6; weight=2; }
+      else if (t === "METEOROLOGIST_WIND_SPEED") { color="#2166ac"; fillOpacity=0.4; weight=1; }
+      else {
+        color = hailColor(m.hail_size_inches || 0);
+        fillOpacity = t === "METEOROLOGIST_HAIL_SIZE" ? 0.7 : 0.4;
+        weight      = t === "METEOROLOGIST_HAIL_SIZE" ? 1.5 : 0.5;
+      }
+      var layer = L.geoJSON(s.geometry, { style: { color: color, fillColor: color, fillOpacity: fillOpacity, weight: weight, opacity: 0.9 } });
+      var lines = [
+        "<strong>" + s._stormDate + "</strong>",
+        "<em style=\"color:#888\">" + t.replace(/_/g," ") + "</em>"
+      ];
+      if (m.hail_size_inches)        lines.push("Hail: <strong>" + m.hail_size_inches + "\"</strong>");
+      if (m.wind_speed_mph)          lines.push("Wind: <strong>" + m.wind_speed_mph + " mph</strong>");
+      if (m.tornado_ef_rank != null) lines.push("EF Rank: <strong>" + m.tornado_ef_rank + "</strong>");
+      if (m.estimated_house_count)   lines.push("Est. houses: <strong>" + m.estimated_house_count.toLocaleString() + "</strong>");
+      if (m.isolated != null)        lines.push("Isolated: " + (m.isolated ? "Yes" : "No"));
+      layer.bindPopup(lines.join("<br>"), { maxWidth: 220 });
+      featureGroup.addLayer(layer);
+    });
+
+    if (visible.length > 0) {
+      var bounds = featureGroup.getBounds();
+      if (bounds.isValid()) map_.fitBounds(bounds, { padding: [40, 40] });
+    }
+  }
+
+  function buildStormList(storms) {
+    var container = document.getElementById("storm-list");
+    container.innerHTML = "";
+    if (!storms || storms.length === 0) {
+      container.innerHTML = "<div class=\"no-storms-hint\">No active storms</div>";
+      return;
+    }
+    storms.forEach(function(storm) {
+      var date = storm.date;
+      var maxHail = storm.max_meteorologist_hail_size != null ? storm.max_meteorologist_hail_size : storm.max_algorithm_hail_size;
+      var shapeCount = (storm.shapes || []).length;
+      var houses = (storm.shapes || []).reduce(function(n, s) { return n + ((s.meta && s.meta.estimated_house_count) || 0); }, 0);
+      var badgeBg = "#48bb78", badgeText = "#fff";
+      if (maxHail >= 2)        { badgeBg = "#e94560"; }
+      else if (maxHail >= 1.5) { badgeBg = "#fd8d3c"; badgeText = "#333"; }
+      else if (maxHail >= 1)   { badgeBg = "#fecc5c"; badgeText = "#333"; }
+      var card = document.createElement("div");
+      card.className = "storm-card active";
+      card.dataset.date = date;
+      card.innerHTML =
+        "<div class=\"storm-card-header\">" +
+          "<input type=\"checkbox\" checked data-date=\"" + date + "\" onchange=\"toggleStorm('" + date + "', this.checked)\">" +
+          "<span class=\"storm-date\">" + date + "</span>" +
+          (maxHail ? "<span class=\"storm-badge\" style=\"background:" + badgeBg + ";color:" + badgeText + "\">" + maxHail + "\"</span>" : "") +
+        "</div>" +
+        "<div class=\"storm-stats\">" +
+          "<span class=\"storm-stat\"><strong>" + shapeCount.toLocaleString() + "</strong> shapes</span>" +
+          (houses > 0 ? "<span class=\"storm-stat\"><strong>" + houses.toLocaleString() + "</strong> houses</span>" : "") +
+        "</div>";
+      container.appendChild(card);
+    });
+  }
+
+  function toggleStorm(date, checked) {
+    if (checked) activeStormDates.add(date);
+    else activeStormDates.delete(date);
+    document.querySelectorAll(".storm-card").forEach(function(card) {
+      card.classList.toggle("active", activeStormDates.has(card.dataset.date));
+    });
+    applyFilters();
+  }
+
+  function loadData(data) {
+    var storms = Array.isArray(data) ? data : (data.shapes ? [data] : []);
+    storms = storms.filter(function(s) { return s.shapes && s.shapes.length > 0; });
+    if (storms.length === 0) { showWaiting(); return; }
+    document.getElementById("waiting-overlay").classList.remove("show");
+    allShapes = [];
+    activeStormDates = new Set();
+    storms.forEach(function(storm) {
+      activeStormDates.add(storm.date);
+      (storm.shapes || []).forEach(function(shape) {
+        var s = Object.assign({}, shape);
+        s._stormDate = storm.date;
+        allShapes.push(s);
+      });
+    });
+    var totalShapes = allShapes.length;
+    var allHail = storms.map(function(s) { return s.max_meteorologist_hail_size != null ? s.max_meteorologist_hail_size : s.max_algorithm_hail_size; }).filter(Boolean);
+    var maxHail = allHail.length ? Math.max.apply(null, allHail) : null;
+    document.getElementById("h-storms").style.display  = "block";
+    document.getElementById("h-hail").style.display    = "block";
+    document.getElementById("h-shapes").style.display  = "block";
+    document.getElementById("hv-storms").textContent   = storms.length;
+    document.getElementById("hv-hail").textContent     = maxHail != null ? maxHail : "-";
+    document.getElementById("hv-shapes").textContent   = totalShapes.toLocaleString();
+    var pill = document.getElementById("status-pill");
+    pill.textContent = storms.length + " Active Storm" + (storms.length > 1 ? "s" : "");
+    pill.className = "status-pill pill-active";
+    var now = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    document.getElementById("last-updated").textContent = "Updated " + now;
+    buildStormList(storms);
+    applyFilters();
+  }
+
+  function showWaiting() {
+    allShapes = [];
+    activeStormDates = new Set();
+    document.getElementById("storm-list").innerHTML = "<div class=\"no-storms-hint\">No active storms</div>";
+    document.getElementById("waiting-overlay").classList.add("show");
+    var pill = document.getElementById("status-pill");
+    pill.textContent = "No Active Storms"; pill.className = "status-pill pill-waiting";
+    ["h-storms","h-hail","h-shapes"].forEach(function(id) { document.getElementById(id).style.display = "none"; });
+  }
+
+  function fetchGist() {
+    var pill = document.getElementById("status-pill");
+    pill.textContent = "Loading..."; pill.className = "status-pill pill-loading";
+    fetch(GIST_URL + "?t=" + Date.now())
+      .then(function(res) { return res.json(); })
+      .then(function(data) { loadData(data); })
+      .catch(function(err) {
+        console.error("Gist fetch failed:", err);
+        pill.textContent = "Fetch Error"; pill.className = "status-pill pill-waiting";
+      });
+  }
+
+  function toggleAutoRefresh() {
+    clearInterval(refreshTimer);
+    if (document.getElementById("auto-refresh").checked)
+      refreshTimer = setInterval(fetchGist, 5 * 60 * 1000);
+  }
+
+  // Address search
+  document.getElementById("search-input").addEventListener("keydown", function(e) {
+    if (e.key === "Enter") searchAddress();
+  });
+
+  function searchAddress() {
+    var query = document.getElementById("search-input").value.trim();
+    if (!query) return;
+    var btn = document.getElementById("search-btn");
+    btn.textContent = "..."; btn.disabled = true;
+    var url = "https://nominatim.openstreetmap.org/search?format=json&q=" + encodeURIComponent(query) + "&countrycodes=us&limit=1";
+    fetch(url, { headers: { "Accept-Language": "en" } })
+      .then(function(res) { return res.json(); })
+      .then(function(hits) {
+        btn.textContent = "Search"; btn.disabled = false;
+        if (!hits.length) {
+          showSearchResult("Address not found. Try adding a city or zip code.", false);
+          return;
+        }
+        var lat = parseFloat(hits[0].lat), lng = parseFloat(hits[0].lon);
+        var displayName = hits[0].display_name;
+        if (searchMarker) map_.removeLayer(searchMarker);
+        searchMarker = L.circleMarker([lat, lng], { radius: 7, color: "#fff", weight: 2, fillColor: "#e94560", fillOpacity: 1 }).addTo(map_);
+        map_.setView([lat, lng], Math.max(map_.getZoom(), 11));
+        var matches = [];
+        allShapes.forEach(function(s) {
+          if (!activeStormDates.has(s._stormDate)) return;
+          var t = s.weather_type;
+          if (pointInGeoJSON(lat, lng, s.geometry)) {
+            matches.push({ date: s._stormDate, type: t, hail: s.meta && s.meta.hail_size_inches, wind: s.meta && s.meta.wind_speed_mph, ef: s.meta && s.meta.tornado_ef_rank, houses: s.meta && s.meta.estimated_house_count });
+          }
+        });
+        matches.sort(function(a,b) { return (b.hail||0)-(a.hail||0); });
+        var shortAddr = displayName.split(",").slice(0,3).join(",");
+        if (matches.length > 0) {
+          var top = matches[0];
+          var zoneLabel = top.type === "METEOROLOGIST_TORNADO" ? "tornado zone" : top.type === "METEOROLOGIST_WIND_SPEED" ? "wind zone" : "hail zone";
+          var zoneDetail = top.hail ? "<strong>" + top.hail + "\"</strong> hail &middot; " : top.wind ? "<strong>" + top.wind + " mph</strong> wind &middot; " : (top.ef != null ? "EF<strong>" + top.ef + "</strong> tornado &middot; " : "");
+          var html = "<div class=\"result-hit\"><strong>Inside " + zoneLabel + "</strong><br>" +
+            zoneDetail + top.date + "<br>" +
+            (top.houses ? "Est. " + top.houses.toLocaleString() + " houses affected<br>" : "") +
+            (matches.length > 1 ? "<em style=\"color:#888\">+" + (matches.length-1) + " more overlap(s)</em><br>" : "") +
+            "<span style=\"color:#888;font-size:11px\">" + shortAddr + "</span></div>";
+          showSearchResult(html, true);
+          searchMarker.bindPopup(html, { maxWidth: 260 }).openPopup();
+        } else {
+          var html = "<div class=\"result-miss\"><strong>Outside active storm zones</strong><br><span style=\"color:#888;font-size:11px\">" + shortAddr + "</span></div>";
+          showSearchResult(html, false);
+          searchMarker.bindPopup(html, { maxWidth: 260 }).openPopup();
+        }
+      })
+      .catch(function(err) {
+        btn.textContent = "Search"; btn.disabled = false;
+        showSearchResult("Geocoding failed. Check your connection.", false);
+      });
+  }
+
+  function showSearchResult(html, isHit) {
+    var el = document.getElementById("search-result");
+    el.innerHTML = html + "<div style=\"margin-top:6px\"><a href=\"#\" onclick=\"clearSearch();return false;\" style=\"font-size:11px;color:#aaa;text-decoration:none;\">&#10005; Clear pin</a></div>";
+    el.className = "show";
+  }
+
+  function clearSearch() {
+    if (searchMarker) { map_.removeLayer(searchMarker); searchMarker = null; }
+    document.getElementById("search-result").className = "";
+    document.getElementById("search-input").value = "";
+  }
+
+  function pointInGeoJSON(lat, lng, geometry) {
+    if (!geometry) return false;
+    if (geometry.type === "Polygon")      return pointInRing(lat, lng, geometry.coordinates[0]);
+    if (geometry.type === "MultiPolygon") return geometry.coordinates.some(function(p) { return pointInRing(lat, lng, p[0]); });
+    return false;
+  }
+
+  function pointInRing(lat, lng, ring) {
+    var inside = false;
+    for (var i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      var xi = ring[i][0], yi = ring[i][1];
+      var xj = ring[j][0], yj = ring[j][1];
+      var intersect = ((yi > lat) !== (yj > lat)) && (lng < (xj - xi) * (lat - yi) / (yj - yi) + xi);
+      if (intersect) inside = !inside;
+    }
+    return inside;
+  }
+
+  // Drag and drop
+  var wrap = document.getElementById("map-wrap");
+  wrap.addEventListener("dragover", function(e) { e.preventDefault(); document.getElementById("drop-overlay").classList.add("show"); });
+  wrap.addEventListener("dragleave", function(e) { if (!wrap.contains(e.relatedTarget)) document.getElementById("drop-overlay").classList.remove("show"); });
+  wrap.addEventListener("drop", function(e) {
+    e.prevent
